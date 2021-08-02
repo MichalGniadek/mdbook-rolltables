@@ -9,7 +9,7 @@ use pulldown_cmark_to_cmark::cmark;
 use semver::{Version, VersionReq};
 use serde_json;
 use std::{io, iter, process};
-use toml::value::Map;
+use toml::{value::Map, Value};
 
 fn main() -> Result<(), Error> {
     let preprocessor = RollTables;
@@ -17,7 +17,7 @@ fn main() -> Result<(), Error> {
     let mut args = pico_args::Arguments::from_env();
     if args.subcommand()? == Some(String::from("supports")) {
         let args = args.finish();
-        let renderer = args.first().expect("Required renderer");
+        let renderer = args.first().expect("Missing argument");
         if preprocessor.supports_renderer(renderer.to_str().unwrap()) {
             process::exit(0);
         } else {
@@ -59,20 +59,14 @@ impl Preprocessor for RollTables {
 
         let label_separator = cfg
             .get("label-separator")
-            .map(|v| v.as_str())
-            .flatten()
+            .and_then(Value::as_str)
             .unwrap_or(" d");
 
-        let separator = cfg
-            .get("separator")
-            .map(|v| v.as_str())
-            .flatten()
-            .unwrap_or(".");
+        let separator = cfg.get("separator").and_then(Value::as_str).unwrap_or(".");
 
         let allow_unusual_dice = cfg
             .get("allow-unusual-dice")
-            .map(|v| v.as_bool())
-            .flatten()
+            .and_then(Value::as_bool)
             .unwrap_or(false);
 
         book.for_each_mut(|item| {
@@ -80,6 +74,7 @@ impl Preprocessor for RollTables {
                 self.handle_chapter(chapter, &label_separator, &separator, allow_unusual_dice)
             }
         });
+
         Ok(book)
     }
 }
@@ -99,31 +94,26 @@ impl RollTables {
         let mut state = cmark(iter::empty::<Event>(), &mut buf, None).unwrap();
 
         while let Some(ev) = events.next() {
-            match ev {
-                Event::Start(Tag::Table(alignment)) => {
-                    let mut table = MarkdownTable::new(alignment.clone(), &mut events);
+            if let Event::Start(Tag::Table(alignment)) = ev {
+                let mut table = MarkdownTable::new(alignment, &mut events);
 
-                    if table.content[0][0][..] == [Event::Text(CowStr::from("d"))]
-                        && table.content.iter().skip(1).all(|row| row[0].is_empty())
-                    {
-                        let count = table.content.len() - 1;
-                        let (label, iter) = get_dice_iterator(
-                            count,
-                            label_separator,
-                            separator,
-                            allow_unusual_dice,
-                        );
+                if table.head()[0] == [Event::Text(CowStr::from("d"))]
+                    && table.rows().iter().all(|row| row[0].is_empty())
+                {
+                    let count = table.rows().len();
+                    let (label, iter) =
+                        get_dice_iterator(count, label_separator, separator, allow_unusual_dice);
 
-                        table.content[0][0] = label;
+                    table.head_mut()[0] = label;
 
-                        for (row, i) in table.content.iter_mut().skip(1).zip(iter) {
-                            row[0] = i;
-                        }
+                    for (i, row) in iter.zip(table.rows_mut()) {
+                        row[0] = i;
                     }
-
-                    state = cmark(table.into_iter(), &mut buf, Some(state)).unwrap();
                 }
-                _ => state = cmark(iter::once(ev), &mut buf, Some(state)).unwrap(),
+
+                state = cmark(table.into_iter(), &mut buf, Some(state)).unwrap();
+            } else {
+                state = cmark(iter::once(ev), &mut buf, Some(state)).unwrap();
             }
         }
 
@@ -139,26 +129,33 @@ struct MarkdownTable<'a> {
 
 impl<'a> MarkdownTable<'a> {
     fn new(alignment: Vec<Alignment>, parser: &mut Parser<'a>) -> Self {
-        let mut slf = Self {
-            alignment,
-            content: vec![],
-        };
+        let mut content = vec![];
 
         loop {
             match parser.next().unwrap() {
-                Event::Start(Tag::TableHead) | Event::Start(Tag::TableRow) => {
-                    slf.content.push(vec![])
-                }
-                Event::Start(Tag::TableCell) => slf.content.last_mut().unwrap().push(vec![]),
-                Event::End(Tag::TableHead)
-                | Event::End(Tag::TableRow)
-                | Event::End(Tag::TableCell) => {}
-                Event::End(Tag::Table(_)) => break,
-                ev => slf.content.last_mut().unwrap().last_mut().unwrap().push(ev),
+                Event::Start(Tag::TableHead | Tag::TableRow) => content.push(vec![]),
+                Event::Start(Tag::TableCell) => content.last_mut().unwrap().push(vec![]),
+                Event::End(Tag::TableHead | Tag::TableRow | Tag::TableCell) => {}
+                Event::End(Tag::Table(_)) => break Self { alignment, content },
+                ev => content.last_mut().unwrap().last_mut().unwrap().push(ev),
             }
         }
+    }
 
-        slf
+    fn head(&self) -> &[Vec<Event<'a>>] {
+        &self.content[0][..]
+    }
+
+    fn head_mut(&mut self) -> &mut [Vec<Event<'a>>] {
+        &mut self.content[0][..]
+    }
+
+    fn rows(&self) -> &[Vec<Vec<Event<'a>>>] {
+        &self.content[1..]
+    }
+
+    fn rows_mut(&mut self) -> &mut [Vec<Vec<Event<'a>>>] {
+        &mut self.content[1..]
     }
 }
 
@@ -201,41 +198,41 @@ impl<'a> Iterator for MarkdownTableIterator<'a> {
                         if let Some(cell_event) = self.cell_event {
                             if cell_event < self.table.content[row][cell].len() {
                                 self.cell_event = Some(cell_event + 1);
-                                return Some(self.table.content[row][cell][cell_event].clone());
+                                Some(self.table.content[row][cell][cell_event].clone())
                             } else {
                                 self.cell_event = None;
                                 self.cell = Some(cell + 1);
-                                return Some(Event::End(Tag::TableCell));
+                                Some(Event::End(Tag::TableCell))
                             }
                         } else {
                             self.cell_event = Some(0);
-                            return Some(Event::Start(Tag::TableCell));
+                            Some(Event::Start(Tag::TableCell))
                         }
                     } else {
                         self.cell = None;
                         self.row = Some(row + 1);
                         if row == 0 {
-                            return Some(Event::End(Tag::TableHead));
+                            Some(Event::End(Tag::TableHead))
                         } else {
-                            return Some(Event::End(Tag::TableRow));
+                            Some(Event::End(Tag::TableRow))
                         }
                     }
                 } else {
                     self.cell = Some(0);
                     if row == 0 {
-                        return Some(Event::Start(Tag::TableHead));
+                        Some(Event::Start(Tag::TableHead))
                     } else {
-                        return Some(Event::Start(Tag::TableRow));
+                        Some(Event::Start(Tag::TableRow))
                     }
                 }
             } else {
                 self.row = None;
                 self.finished = true;
-                return Some(Event::End(Tag::Table(self.table.alignment.clone())));
+                Some(Event::End(Tag::Table(self.table.alignment.clone())))
             }
         } else {
             self.row = Some(0);
-            return Some(Event::Start(Tag::Table(self.table.alignment.clone())));
+            Some(Event::Start(Tag::Table(self.table.alignment.clone())))
         }
     }
 }
@@ -249,27 +246,22 @@ fn get_dice_iterator<'a>(
     Vec<Event<'a>>,
     Box<dyn Iterator<Item = Vec<Event<'a>>> + 'a>,
 ) {
-    macro_rules! string_to_event_iter {
-        ($e:expr) => {
-            Box::new(($e).map(|s| vec![Event::Text(CowStr::from(s))]))
-        };
+    fn map_string_to_iter<'b>(
+        iter: impl Iterator<Item = String> + 'b,
+    ) -> Box<dyn Iterator<Item = Vec<Event<'b>>> + 'b> {
+        Box::new(iter.map(|s| vec![Event::Text(s.into())]))
     }
 
-    let combined_dice = |a: usize,
-                         b: usize|
-     -> (
-        Vec<Event<'a>>,
-        Box<dyn Iterator<Item = Vec<Event<'a>>> + 'a>,
-    ) {
+    let combined_dice = |a: usize, b: usize| {
         (
-            vec![Event::Text(CowStr::from(format!(
-                "d{}{}{}",
-                a, label_separator, b
-            )))],
-            string_to_event_iter!((1..=a)
-                .into_iter()
-                .flat_map(move |d| std::iter::repeat(d).zip(1..=b))
-                .map(move |(a, b)| format!("{}{}{}", a, separator, b))),
+            vec![Event::Text(
+                format!("d{}{}{}", a, label_separator, b).into(),
+            )],
+            map_string_to_iter(
+                (1..=a)
+                    .flat_map(move |die| iter::repeat(die).zip(1..=b))
+                    .map(move |(n0, n1)| format!("{}{}{}", n0, separator, n1)),
+            ),
         )
     };
 
@@ -281,13 +273,13 @@ fn get_dice_iterator<'a>(
         48 => combined_dice(8, 6),
         64 => combined_dice(8, 8),
         _ => {
-            if !allow_unusual_dice && !matches!(count, 4 | 6 | 8 | 10 | 12 | 20 | 100) {
+            if !allow_unusual_dice && ![4, 6, 8, 10, 12, 20, 100].contains(&count) {
                 eprintln!("Warning: Roll table created with unusual dice: d{}", count);
             }
 
             (
-                vec![Event::Text(CowStr::from(format!("d{}", count)))],
-                string_to_event_iter!((1..=count).into_iter().map(|i| format!("{}", i))),
+                vec![Event::Text(format!("d{}", count).into())],
+                map_string_to_iter((1..=count).map(|i| format!("{}", i))),
             )
         }
     }
