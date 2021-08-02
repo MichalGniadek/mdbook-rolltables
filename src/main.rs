@@ -111,7 +111,7 @@ impl RollTables {
                     }
                 }
 
-                state = cmark(table.into_iter(), &mut buf, Some(state)).unwrap();
+                state = cmark(table.events_iter(), &mut buf, Some(state)).unwrap();
             } else {
                 state = cmark(iter::once(ev), &mut buf, Some(state)).unwrap();
             }
@@ -157,83 +157,35 @@ impl<'a> MarkdownTable<'a> {
     fn rows_mut(&mut self) -> &mut [Vec<Vec<Event<'a>>>] {
         &mut self.content[1..]
     }
-}
 
-impl<'a> IntoIterator for MarkdownTable<'a> {
-    type Item = Event<'a>;
-
-    type IntoIter = MarkdownTableIterator<'a>;
-
-    fn into_iter(self) -> Self::IntoIter {
-        MarkdownTableIterator {
-            table: self,
-            row: None,
-            cell: None,
-            cell_event: None,
-            finished: false,
-        }
-    }
-}
-
-struct MarkdownTableIterator<'a> {
-    table: MarkdownTable<'a>,
-    row: Option<usize>,
-    cell: Option<usize>,
-    cell_event: Option<usize>,
-    finished: bool,
-}
-
-impl<'a> Iterator for MarkdownTableIterator<'a> {
-    type Item = Event<'a>;
-
-    fn next(&mut self) -> Option<Self::Item> {
-        if self.finished {
-            return None;
-        }
-
-        if let Some(row) = self.row {
-            if row < self.table.content.len() {
-                if let Some(cell) = self.cell {
-                    if cell < self.table.content[row].len() {
-                        if let Some(cell_event) = self.cell_event {
-                            if cell_event < self.table.content[row][cell].len() {
-                                self.cell_event = Some(cell_event + 1);
-                                Some(self.table.content[row][cell][cell_event].clone())
-                            } else {
-                                self.cell_event = None;
-                                self.cell = Some(cell + 1);
-                                Some(Event::End(Tag::TableCell))
-                            }
-                        } else {
-                            self.cell_event = Some(0);
-                            Some(Event::Start(Tag::TableCell))
-                        }
-                    } else {
-                        self.cell = None;
-                        self.row = Some(row + 1);
-                        if row == 0 {
-                            Some(Event::End(Tag::TableHead))
-                        } else {
-                            Some(Event::End(Tag::TableRow))
-                        }
-                    }
-                } else {
-                    self.cell = Some(0);
-                    if row == 0 {
-                        Some(Event::Start(Tag::TableHead))
-                    } else {
-                        Some(Event::Start(Tag::TableRow))
-                    }
-                }
-            } else {
-                self.row = None;
-                self.finished = true;
-                Some(Event::End(Tag::Table(self.table.alignment.clone())))
-            }
-        } else {
-            self.row = Some(0);
-            Some(Event::Start(Tag::Table(self.table.alignment.clone())))
-        }
+    fn events_iter(&'a self) -> impl Iterator<Item = Event<'a>> {
+        iter::empty()
+            .chain(iter::once(Event::Start(Tag::Table(self.alignment.clone()))))
+            // Head
+            .chain(iter::once(Event::Start(Tag::TableHead)))
+            .chain(self.head().iter().flat_map(|cell| {
+                // Cell
+                iter::empty()
+                    .chain(iter::once(Event::Start(Tag::TableCell)))
+                    .chain(cell.iter().cloned())
+                    .chain(iter::once(Event::End(Tag::TableCell)))
+            }))
+            .chain(iter::once(Event::End(Tag::TableHead)))
+            // Rows
+            .chain(self.rows().iter().flat_map(|row| {
+                // Row
+                iter::empty()
+                    .chain(iter::once(Event::Start(Tag::TableRow)))
+                    .chain(row.iter().flat_map(|cell| {
+                        // Cell
+                        iter::empty()
+                            .chain(iter::once(Event::Start(Tag::TableCell)))
+                            .chain(cell.iter().cloned())
+                            .chain(iter::once(Event::End(Tag::TableCell)))
+                    }))
+                    .chain(iter::once(Event::End(Tag::TableRow)))
+            }))
+            .chain(iter::once(Event::End(Tag::Table(self.alignment.clone()))))
     }
 }
 
@@ -246,7 +198,7 @@ fn get_dice_iterator<'a>(
     Vec<Event<'a>>,
     Box<dyn Iterator<Item = Vec<Event<'a>>> + 'a>,
 ) {
-    fn map_string_to_iter<'b>(
+    fn map_string_to_event<'b>(
         iter: impl Iterator<Item = String> + 'b,
     ) -> Box<dyn Iterator<Item = Vec<Event<'b>>> + 'b> {
         Box::new(iter.map(|s| vec![Event::Text(s.into())]))
@@ -257,7 +209,7 @@ fn get_dice_iterator<'a>(
             vec![Event::Text(
                 format!("d{}{}{}", a, label_separator, b).into(),
             )],
-            map_string_to_iter(
+            map_string_to_event(
                 (1..=a)
                     .flat_map(move |die| iter::repeat(die).zip(1..=b))
                     .map(move |(n0, n1)| format!("{}{}{}", n0, separator, n1)),
@@ -279,7 +231,7 @@ fn get_dice_iterator<'a>(
 
             (
                 vec![Event::Text(format!("d{}", count).into())],
-                map_string_to_iter((1..=count).map(|i| format!("{}", i))),
+                map_string_to_event((1..=count).map(|i| format!("{}", i))),
             )
         }
     }
