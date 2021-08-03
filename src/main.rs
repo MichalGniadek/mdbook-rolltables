@@ -219,6 +219,17 @@ fn get_dice_iterator<'a>(
         36 => combined_dice(6, 6),
         48 => combined_dice(8, 6),
         64 => combined_dice(8, 8),
+        3 => (
+            vec![Event::Text("d6".into())],
+            map_string_to_event(
+                vec![
+                    String::from("1, 2"),
+                    String::from("3, 4"),
+                    String::from("5, 6"),
+                ]
+                .into_iter(),
+            ),
+        ),
         _ => {
             if !allow_unusual_dice && ![4, 6, 8, 10, 12, 20, 100].contains(&count) {
                 eprintln!("Warning: Roll table created with unusual dice: d{}", count);
