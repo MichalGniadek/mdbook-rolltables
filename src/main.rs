@@ -12,13 +12,13 @@ use std::{io, iter, process};
 use toml::{value::Map, Value};
 
 fn main() -> Result<(), Error> {
-    let preprocessor = RollTables;
-
     let mut args = pico_args::Arguments::from_env();
-    if args.subcommand()? == Some(String::from("supports")) {
-        let args = args.finish();
-        let renderer = args.first().expect("Missing argument");
-        if preprocessor.supports_renderer(renderer.to_str().unwrap()) {
+    if args.contains("-h") || args.contains("--help") {
+        eprintln!("mdbook-rolltables is a preprocessor for mdBook and can't be used as a standalone executable");
+        process::exit(1);
+    } else if args.subcommand()? == Some(String::from("supports")) {
+        let renderer: String = args.free_from_str().expect("Missing argument");
+        if RollTables.supports_renderer(&renderer) {
             process::exit(0);
         } else {
             process::exit(1);
@@ -32,14 +32,14 @@ fn main() -> Result<(), Error> {
         if !version_req.matches(&book_version) {
             eprintln!(
                 "Warning: The {} plugin was built against version {} of mdbook, \
-                 but we're being called from version {}",
-                preprocessor.name(),
+                 but the preprocessor is being called from version {}",
+                RollTables.name(),
                 mdbook::MDBOOK_VERSION,
                 ctx.mdbook_version
             );
         }
 
-        let processed_book = preprocessor.run(&ctx, book)?;
+        let processed_book = RollTables.run(&ctx, book)?;
         serde_json::to_writer(io::stdout(), &processed_book)?;
 
         Ok(())
