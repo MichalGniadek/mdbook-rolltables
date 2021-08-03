@@ -9,7 +9,7 @@ use pulldown_cmark_to_cmark::cmark;
 use semver::{Version, VersionReq};
 use serde_json;
 use std::{io, iter, process};
-use toml::{value::Map, Value};
+use toml::Value;
 
 fn main() -> Result<(), Error> {
     let mut args = pico_args::Arguments::from_env();
@@ -54,20 +54,34 @@ impl Preprocessor for RollTables {
     }
 
     fn run(&self, ctx: &PreprocessorContext, mut book: Book) -> Result<Book> {
-        let cfg = &Map::new();
-        let cfg = ctx.config.get_preprocessor(self.name()).unwrap_or(cfg);
+        let cfg = ctx.config.get_preprocessor(self.name()).unwrap();
 
-        let label_separator = cfg
-            .get("label-separator")
-            .and_then(Value::as_str)
-            .unwrap_or(" d");
+        let label_separator = match cfg.get("label-separator") {
+            Some(Value::String(s)) => s.clone(),
+            Some(_) => {
+                eprintln!("Error: label-separator must be a string");
+                process::exit(1)
+            }
+            None => " d".into(),
+        };
 
-        let separator = cfg.get("separator").and_then(Value::as_str).unwrap_or(".");
+        let separator = match cfg.get("separator") {
+            Some(Value::String(s)) => s.clone(),
+            Some(_) => {
+                eprintln!("Error: separator must be a string");
+                process::exit(1)
+            }
+            None => ".".into(),
+        };
 
-        let allow_unusual_dice = cfg
-            .get("allow-unusual-dice")
-            .and_then(Value::as_bool)
-            .unwrap_or(false);
+        let allow_unusual_dice = match cfg.get("allow-unusual-dice") {
+            Some(Value::Boolean(b)) => *b,
+            Some(_) => {
+                eprintln!("Error: allow-unusual-dice must be a bool");
+                process::exit(1)
+            }
+            None => false,
+        };
 
         book.for_each_mut(|item| {
             if let BookItem::Chapter(chapter) = item {
