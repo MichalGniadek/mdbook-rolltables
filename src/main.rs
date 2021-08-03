@@ -159,30 +159,25 @@ impl<'a> MarkdownTable<'a> {
     }
 
     fn events_iter(&'a self) -> impl Iterator<Item = Event<'a>> {
+        fn cell_events<'b>(cell: &'b Vec<Event<'b>>) -> impl Iterator<Item = Event<'b>> {
+            iter::empty()
+                .chain(iter::once(Event::Start(Tag::TableCell)))
+                .chain(cell.iter().cloned())
+                .chain(iter::once(Event::End(Tag::TableCell)))
+        }
+
         iter::empty()
             .chain(iter::once(Event::Start(Tag::Table(self.alignment.clone()))))
             // Head
             .chain(iter::once(Event::Start(Tag::TableHead)))
-            .chain(self.head().iter().flat_map(|cell| {
-                // Cell
-                iter::empty()
-                    .chain(iter::once(Event::Start(Tag::TableCell)))
-                    .chain(cell.iter().cloned())
-                    .chain(iter::once(Event::End(Tag::TableCell)))
-            }))
+            .chain(self.head().iter().flat_map(cell_events))
             .chain(iter::once(Event::End(Tag::TableHead)))
             // Rows
             .chain(self.rows().iter().flat_map(|row| {
                 // Row
                 iter::empty()
                     .chain(iter::once(Event::Start(Tag::TableRow)))
-                    .chain(row.iter().flat_map(|cell| {
-                        // Cell
-                        iter::empty()
-                            .chain(iter::once(Event::Start(Tag::TableCell)))
-                            .chain(cell.iter().cloned())
-                            .chain(iter::once(Event::End(Tag::TableCell)))
-                    }))
+                    .chain(row.iter().flat_map(cell_events))
                     .chain(iter::once(Event::End(Tag::TableRow)))
             }))
             .chain(iter::once(Event::End(Tag::Table(self.alignment.clone()))))
