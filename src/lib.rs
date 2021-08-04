@@ -22,7 +22,18 @@
 //! The preprocessor converts only tables where the first column
 //! in the header is "d" and the rest of the first column is empty.
 //! It will automatically choose a die (or a combination) depending
-//! on the number of options.
+//! on the number of rows.
+//!
+//! Supported options:
+//! ```toml
+//! [preprocessor.rolltables]
+//! # Separator when there are multiple dice e.g. d66
+//! separator = "."
+//! # Separator when there are multiple dice e.g. d66 but in header
+//! head-separator = ""
+//! # Warns about d7, d9 etc.
+//! warn-unusual-dice = true
+//! ```
 
 use anyhow::anyhow;
 use mdbook::{
@@ -48,10 +59,10 @@ impl Preprocessor for RollTables {
     fn run(&self, ctx: &PreprocessorContext, mut book: Book) -> Result<Book> {
         let cfg = ctx.config.get_preprocessor(self.name()).unwrap();
 
-        let label_separator = match cfg.get("label-separator") {
+        let head_separator = match cfg.get("head-separator") {
             Some(Value::String(s)) => s.clone(),
-            Some(_) => Err(anyhow!("label-separator must be a string"))?,
-            None => " d".into(),
+            Some(_) => Err(anyhow!("head-separator must be a string"))?,
+            None => "".into(),
         };
 
         let separator = match cfg.get("separator") {
@@ -68,7 +79,7 @@ impl Preprocessor for RollTables {
 
         book.for_each_mut(|item| {
             if let BookItem::Chapter(chapter) = item {
-                self.handle_chapter(chapter, &label_separator, &separator, warn_unusual_dice)
+                self.handle_chapter(chapter, &head_separator, &separator, warn_unusual_dice)
             }
         });
 
@@ -80,7 +91,7 @@ impl RollTables {
     fn handle_chapter(
         &self,
         chapter: &mut Chapter,
-        label_separator: &str,
+        head_separator: &str,
         separator: &str,
         warn_unusual_dice: bool,
     ) {
@@ -98,10 +109,10 @@ impl RollTables {
                     && table.rows().iter().all(|row| row[0].is_empty())
                 {
                     let count = table.rows().len();
-                    let (label, iter) =
-                        get_dice_iterator(count, label_separator, separator, warn_unusual_dice);
+                    let (head, iter) =
+                        get_dice_iterator(count, head_separator, separator, warn_unusual_dice);
 
-                    table.head_mut()[0] = label;
+                    table.head_mut()[0] = head;
 
                     for (i, row) in iter.zip(table.rows_mut()) {
                         row[0] = i;
@@ -183,7 +194,7 @@ impl<'a> MarkdownTable<'a> {
 
 fn get_dice_iterator<'a>(
     count: usize,
-    label_separator: &'a str,
+    head_separator: &'a str,
     separator: &'a str,
     warn_unusual_dice: bool,
 ) -> (
@@ -198,9 +209,7 @@ fn get_dice_iterator<'a>(
 
     let combined_dice = |a: usize, b: usize| {
         (
-            vec![Event::Text(
-                format!("d{}{}{}", a, label_separator, b).into(),
-            )],
+            vec![Event::Text(format!("d{}{}{}", a, head_separator, b).into())],
             map_string_to_event(
                 (1..=a)
                     .flat_map(move |die| iter::repeat(die).zip(1..=b))
