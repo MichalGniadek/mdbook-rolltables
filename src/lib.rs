@@ -24,6 +24,7 @@
 //! It will automatically choose a die (or a combination) depending
 //! on the number of options.
 
+use anyhow::anyhow;
 use mdbook::{
     book::{Book, Chapter},
     errors::Result,
@@ -32,7 +33,7 @@ use mdbook::{
 };
 use pulldown_cmark::{Alignment, Event, Options, Parser, Tag};
 use pulldown_cmark_to_cmark::cmark;
-use std::{iter, process};
+use std::iter;
 use toml::Value;
 
 /// The struct that implements Preprocessor trait.
@@ -49,34 +50,25 @@ impl Preprocessor for RollTables {
 
         let label_separator = match cfg.get("label-separator") {
             Some(Value::String(s)) => s.clone(),
-            Some(_) => {
-                eprintln!("Error: label-separator must be a string");
-                process::exit(1)
-            }
+            Some(_) => Err(anyhow!("label-separator must be a string"))?,
             None => " d".into(),
         };
 
         let separator = match cfg.get("separator") {
             Some(Value::String(s)) => s.clone(),
-            Some(_) => {
-                eprintln!("Error: separator must be a string");
-                process::exit(1)
-            }
+            Some(_) => Err(anyhow!("separator must be a string"))?,
             None => ".".into(),
         };
 
-        let allow_unusual_dice = match cfg.get("allow-unusual-dice") {
+        let warn_unusual_dice = match cfg.get("warn-unusual-dice") {
             Some(Value::Boolean(b)) => *b,
-            Some(_) => {
-                eprintln!("Error: allow-unusual-dice must be a bool");
-                process::exit(1)
-            }
+            Some(_) => Err(anyhow!("warn-unusual-dice must be a bool"))?,
             None => false,
         };
 
         book.for_each_mut(|item| {
             if let BookItem::Chapter(chapter) = item {
-                self.handle_chapter(chapter, &label_separator, &separator, allow_unusual_dice)
+                self.handle_chapter(chapter, &label_separator, &separator, warn_unusual_dice)
             }
         });
 
@@ -90,7 +82,7 @@ impl RollTables {
         chapter: &mut Chapter,
         label_separator: &str,
         separator: &str,
-        allow_unusual_dice: bool,
+        warn_unusual_dice: bool,
     ) {
         let mut buf = String::with_capacity(chapter.content.len());
 
@@ -107,7 +99,7 @@ impl RollTables {
                 {
                     let count = table.rows().len();
                     let (label, iter) =
-                        get_dice_iterator(count, label_separator, separator, allow_unusual_dice);
+                        get_dice_iterator(count, label_separator, separator, warn_unusual_dice);
 
                     table.head_mut()[0] = label;
 
@@ -193,7 +185,7 @@ fn get_dice_iterator<'a>(
     count: usize,
     label_separator: &'a str,
     separator: &'a str,
-    allow_unusual_dice: bool,
+    warn_unusual_dice: bool,
 ) -> (
     Vec<Event<'a>>,
     Box<dyn Iterator<Item = Vec<Event<'a>>> + 'a>,
@@ -236,7 +228,7 @@ fn get_dice_iterator<'a>(
             ),
         ),
         _ => {
-            if !allow_unusual_dice && ![4, 6, 8, 10, 12, 20, 100].contains(&count) {
+            if warn_unusual_dice && ![4, 6, 8, 10, 12, 20, 100].contains(&count) {
                 eprintln!("Warning: Roll table created with unusual dice: d{}", count);
             }
 

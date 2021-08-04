@@ -4,6 +4,7 @@ version = "0.2.0"
 edition = "2018"
 
 [dependencies]
+anyhow = "1.0"
 mdbook = "0.4.11"
 pico-args = "0.4.2"
 pulldown-cmark = "0.8.0"

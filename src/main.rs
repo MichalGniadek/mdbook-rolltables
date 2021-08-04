@@ -1,3 +1,4 @@
+use anyhow::anyhow;
 use mdbook::{
     errors::{Error, Result},
     preprocess::{CmdPreprocessor, Preprocessor},
@@ -10,8 +11,7 @@ use std::{io, process};
 fn main() -> Result<(), Error> {
     let mut args = pico_args::Arguments::from_env();
     if args.contains("-h") || args.contains("--help") {
-        eprintln!("mdbook-rolltables is a preprocessor for mdBook and can't be used as a standalone executable");
-        process::exit(1);
+        return Err(anyhow!("mdbook-rolltables is a preprocessor for mdBook and can't be used as a standalone executable"));
     } else if args.subcommand()? == Some(String::from("supports")) {
         let renderer: String = args.free_from_str().expect("Missing argument");
         if RollTables.supports_renderer(&renderer) {
