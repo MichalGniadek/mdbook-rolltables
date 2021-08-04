@@ -1,3 +1,29 @@
+#![warn(missing_docs)]
+
+//! A mdBook preprocessor that makes writing roll tables
+//! for RPG books easier.
+//!
+//! For example it translates this table:
+//!
+//! |d|Class|
+//! |:---:|:---|
+//! ||Warrior|
+//! ||Thief|
+//! ||Wizard|
+//!
+//! to this one:
+//!
+//! |d6|Class|
+//! |:---:|:---|
+//! |1,2|Warrior|
+//! |3,4|Thief|
+//! |5,6|Wizard|
+//!
+//! The preprocessor converts only tables where the first column
+//! in the header is "d" and the rest of the first column is empty.
+//! It will automatically choose a die (or a combination) depending
+//! on the number of options.
+
 use mdbook::{
     book::{Book, Chapter},
     errors::Result,
@@ -9,6 +35,7 @@ use pulldown_cmark_to_cmark::cmark;
 use std::{iter, process};
 use toml::Value;
 
+/// The struct that implements Preprocessor trait.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct RollTables;
 
