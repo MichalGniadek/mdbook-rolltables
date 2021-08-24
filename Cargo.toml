@@ -5,8 +5,8 @@ edition = "2018"
 
 [dependencies]
 anyhow = "1.0"
-mdbook = "0.4.11"
-pico-args = "0.4.2"
+mdbook = {version = "0.4.11", default-features = false }
+pico-args = {version = "0.4.2", default-features = false}
 pulldown-cmark = "0.8.0"
 pulldown-cmark-to-cmark = "6.0.2"
 semver = "1.0.4"
